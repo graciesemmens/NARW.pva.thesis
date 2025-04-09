@@ -20,7 +20,7 @@ out_drive <- "C:\\temp\\"
 #------------------------------------------------------------------------------#
 version <- "1.00"
 
-nBoot <- 1000#, number of bootstrap runs
+nBoot <- 5000#, number of bootstrap runs
 nRep  <- 1   #, number of replications (Monte Carlo loop). 
 nT <- 100 # number of years
 
@@ -41,10 +41,11 @@ femStages <- stages[grep("F", stages)]
 nFemStages <- length(femStages)
 adFemStages <- femStages[-(1:4)]
 
-### Reproductive stage effects structure on B and S----
+### Reproductive stage effects struct32ure on B and S----
 reproStages <- c(5:10, "W")
 nReproStages <- length(reproStages)
-survAges <- 1:5
+print(nReproStages)
+dim(survAges <- 1:5)
 survStages <- 1:5
 nSurvAges <- length(survAges)
 nSurvStages <- length(survStages)
@@ -97,14 +98,15 @@ post_mort  <- read.csv("inputs/NARW_posteriors_MORT.csv")
 ## match Greek letter convention for mortality model
 mort.coeff <- grep(paste(c("beta.m","beta.i"),collapse="|"),names(post_mort),value=T)
 names(post_mort)[match(mort.coeff,names(post_mort))] <- gsub("beta","a",mort.coeff)
-  
+
 ## reduce size to number of bootstrap runs per projection----
 post_repro <- post_repro[nBootKeep(post_repro),]
 post_mort  <-  post_mort[nBootKeep(post_mort),]
 
 ## natural mortality (set to 0)----
 # based on Dureuil & Froese (2021) and t_max = 268 (bowhead whales)
-post_mort$Mu.mO <- 0 #rgamma(nrow(post_mort),1,99)
+post_mort$Mu.mO <- 0 #rgamma(nrow(post_mort),1,99) # set to specific hazard mortality rate 
+
 
 ## starting stage/state distributions----
 load("inputs/PVA_population_t0.Rdata")
@@ -124,12 +126,12 @@ betas <- post_repro[, c(grep("beta.age.first",colnames(post_repro),value=TRUE),
                         "beta.regime2", "beta.regime2W", 
                         "beta.p1", "beta.p2", 
                         "beta.inj"
-                        )]
+)]
 colnames(betas) <- c(5:10, "W", "b.regime2", "b.regime2W",
                      "b.prey1", "b.prey2", "b.inj") 
 
 ## calf loss parameter----
-kappa <- post_repro[, "kappa"]
+kappa <- post_repro[, "kappa"]*0.5
 
 ## survival/mortality parameters----
 alphas <- post_mort[,c(
@@ -164,11 +166,11 @@ for (i in 1:nBoot) {
   # injury
   eps[["random"]][["inj"]][1, i, ] <- rnorm(nT, 0, post_mort[i, "sigma.iE.t"])
   eps[["random"]][["inj"]][2, i, ] <- rnorm(nT, 0, post_mort[i, "sigma.iV.t"])
-
+  
   # mortality
   eps[["random"]][["mort"]][1, i, ] <- 0 #rnorm(nT, 0, post_mort[i, "sigma.mE.t"])
   eps[["random"]][["mort"]][2, i, ] <- 0 #rnorm(nT, 0, post_mort[i, "sigma.mV.t"])
-
+  
   # reproduction
   eps[["random"]][["repro"]][i, ] <- rnorm(nT, 0, post_repro[i, "sigma.B.t"])
 }
@@ -181,39 +183,43 @@ load.prey <- FALSE
 preyChange_v <- c(0.7,0.8,0.9,1.1,1.2,1.3)
 
 if (!load.prey){
-preyArrays <- list()
-
-# post-2010 prey availability
-preyArrays[["prey post2010"]] <- build.scenario.prey(
-  plankton_w_food,
-  ref_yrs = list(2010:2019),
-  proj_yrs = list(1:nT)
-  )
-# historic fluctuations
-preyArrays[["prey historic"]] <- build.scenario.prey(
-  plankton_w_food,
-  # good vs. bad decade
-  #ref_yrs = rep(list(2001:2009,1990:2000),nT/20),
-  ref_yrs = list(1990:2009)
-  # decadal cycling
-  # proj_yrs = split(1:nT,ceiling((1:nT)/10))
-)
-
-# add prey availability due to noise
-for (a in 1:6){
-  preyArrays[[a+2]] <- build.scenario.prey(
+  preyArrays <- list()
+  
+  # post-2010 prey availability
+  preyArrays[["prey post2010"]] <- build.scenario.prey(
     plankton_w_food,
     ref_yrs = list(2010:2019),
-    proj_yrs = list(1:nT), preyChange = preyChange_v[a]
-    
+    proj_yrs = list(1:nT)
   )
-}
-names(preyArrays)[(1:length(preyChange_v))+2] <- paste0(
-  "prey post2010 ", preyChange_v*100,"%")
-save(preyArrays,preyChange_v,file="./inputs/preyArrays_ALLscenarios.Rdata")
+  # historic fluctuations
+  preyArrays[["prey historic"]] <- build.scenario.prey(
+    plankton_w_food,
+    # good vs. bad decade
+    #ref_yrs = rep(list(2001:2009,1990:2000),nT/20),
+    ref_yrs = list(1990:2009)
+    # decadal cycling
+    # proj_yrs = split(1:nT,ceiling((1:nT)/10))
+  )
+  
+  # add prey availability due to noise
+  for (a in 1:6){
+    preyArrays[[a+2]] <- build.scenario.prey(
+      plankton_w_food,
+      ref_yrs = list(2010:2019),
+      proj_yrs = list(1:nT), preyChange = preyChange_v[a]
+      
+    )
+  }
+  names(preyArrays)[(1:length(preyChange_v))+2] <- paste0(
+    "prey post2010 ", preyChange_v*100,"%")
+  save(preyArrays,preyChange_v,file="./inputs/preyArrays_ALLscenarios.Rdata")
 }
 load(file="./inputs/preyArrays_ALLscenarios.Rdata")
 
+# Multiplying preyArrays by 0 to eliminate prey influence
+preyArrays <- lapply(preyArrays, function(arr) {
+  arr * 0
+})
 
 woundArrays <- list()
 
@@ -224,10 +230,10 @@ start <- Sys.time()
 for (e in ent.reduce){
   woundArrays[[paste0("reduce entanglement ",e,
                       "%; vessel strike up 0%; speed restrict 0%")]] <- build.scenario.wound(
-    iTheta,
-    eps.i = eps[[eps.type]][["inj"]],
-    iE.change = list(rep((100-e)/100,5))
-  )
+                        iTheta,
+                        eps.i = eps[[eps.type]][["inj"]],
+                        iE.change = list(rep((100-e)/100,5))
+                      )
 }
 (end <- Sys.time()-start)
 
@@ -236,11 +242,13 @@ weak.e <- c(50)
 for (e in weak.e){
   woundArrays[[paste0("weak rope coverage ",e,
                       "%; vessel strike up 0%; speed restrict 0%")]] <- build.scenario.wound(
-    iTheta,
-    eps.i = eps[[eps.type]][["inj"]],
-    iE.change = list(c(rep((100-(e*.9))/100,2),rep((100-(e*.6))/100,3)))
-  )
+                        iTheta,
+                        eps.i = eps[[eps.type]][["inj"]],
+                        iE.change = list(c(rep((100-(e*.9))/100,2),rep((100-(e*.6))/100,3)))
+                      )
 }
+
+
 
 # all vessel scenarios
 ent.reduce <- c(0,25)
@@ -251,72 +259,61 @@ vess_speed <- c(1,0.75,0)
 for (e in ent.reduce){        
   #speed restrict
   for (v2 in vess_speed[list(1:3,1:2)[[match(e,ent.reduce)]]]){
-  #traffic change
-  for (v1 in vess_t_change[list(1:3,1:3,2)[[match(v2,vess_speed)]]]){  
-    woundArrays[[paste0(
-      "reduce entanglement ",e,"%; vessel strike up ",v1,
-      "%; speed restrict ",(1-v2)*100,"%")]] <- build.scenario.wound(
-      iTheta,
-      eps.i = eps[[eps.type]][["inj"]],
-      iE.change = list(rep(1-(e/100),5)), #iE = 0.50 of status quo rate
-      iV.change = list(rep(v2,5)),
-      iV.change.t = list(rep(1+(v1/100),5))
-    )
-  }
+    #traffic change
+    for (v1 in vess_t_change[list(1:3,1:3,2)[[match(v2,vess_speed)]]]){  
+      woundArrays[[paste0(
+        "reduce entanglement ",e,"%; vessel strike up ",v1,
+        "%; speed restrict ",(1-v2)*100,"%")]] <- build.scenario.wound(
+          iTheta,
+          eps.i = eps[[eps.type]][["inj"]],
+          iE.change = list(rep(1-(e/100),5)), #iE = 0.50 of status quo rate
+          iV.change = list(rep(v2,5)),
+          iV.change.t = list(rep(1+(v1/100),5))
+        )
+    }
   }
 }
 
 #-----------------------------------#
 # count scenarios and name them
-scenario.dat <- data.frame(
-  wound = names(woundArrays),
-  prey = names(preyArrays)[1],
-  B.regime = "repro post2010",
-  ceiling_N = ceiling_N
-)
 #-----------------------------------#
 
-# add historical prey scenarios
-scenario.dat <- rbind(
-  scenario.dat,
-  data.frame(
-    wound = names(woundArrays)[c(1,19)], #baseline1 & 100% vess reduce
-    prey = names(preyArrays)[c(2)],
-    B.regime = c("repro post2010"),
-    ceiling_N = ceiling_N
-  ))
+scenario.dat <- expand.grid(
+  mortality = c("Low Mortality", "High Mortality"),
+  calving = c("Low Fecundity", "High Fecundity"),
+  stringsAsFactors = FALSE
+)
 
-# add prey accessibility scenarios
-scenario.dat <- rbind(
-  scenario.dat,
-  data.frame(
-    wound = names(woundArrays)[c(1)], #0% ent reduction
-    prey = names(preyArrays)[(1:length(preyChange_v))+2],
-    B.regime = c("repro post2010"),
-    ceiling_N = ceiling_N
-  ))
+scenario.dat$ceiling_N <- ceiling_N #?
 
-
-scenario.dat$names <- apply(scenario.dat[,c("wound","prey")],1,function(x) paste(x,collapse="; "))
+scenario.dat$names <- apply(scenario.dat[, c("mortality", "calving")], 1, function(x) paste(x, collapse = "; "))
 scenarios <- scenario.dat$names
 nS <- nrow(scenario.dat)
 
+print(scenario.dat)
+
+
+
+  
 #------------------------------------------------------------------------------#
 # Output data structures----
 #------------------------------------------------------------------------------#
-N <- array(NA, c(nBoot, nRep, nT, nS, nStages), 
-           dimnames = list(NULL, NULL, NULL, scenarios, stages))
+N <- array(NA, c(nBoot, nRep, nT, nS, nStages),
+           dimnames = list(NULL, NULL, NULL, scenarios, stages)
+)
 Ntot <- array(NA, c(nBoot, nRep, nT, nS))
-PQE <- array(0, c(nBoot, nT, nS, nThresholds), 
-             dimnames = list(NULL, NULL, scenarios, thresholds))
+PQE <- array(0, c(nBoot, nT, nS, nThresholds),
+             dimnames = list(NULL, NULL, scenarios, thresholds)
+)
 Ndead <- array(0, c(nBoot, nRep, nT, nS, nStages, nDeadStates),
-               list(NULL, NULL, 1:nT, scenarios, stages, deadStates))
+               list(NULL, NULL, 1:nT, scenarios, stages, deadStates)
+)
 Nborn <- array(0, c(nBoot, nRep, nT, nS),
-               list(NULL, NULL, 1:nT, scenarios))
+               list(NULL, NULL, 1:nT, scenarios)
+)
 propEntangled <- array(NA, c(nBoot, nRep, nT, nS))
 propStruck <- array(NA, c(nBoot, nRep, nT, nS))
 propOther <- array(NA, c(nBoot, nRep, nT, nS))
-
 
 #------------------------------------------------------------------------------#
 # Run simulation----
@@ -324,51 +321,147 @@ propOther <- array(NA, c(nBoot, nRep, nT, nS))
 library(parallel)
 library(foreach)
 library(doParallel)
-n.cores <- 7
 
-start.scenario <- 1
+
+#Enrico's data
+load("/Users/graciesemmens/Downloads/Vital_rates_means_GSemmens.RData") # Adjust path
+print(calving)
+print(str(calving))
+
+
+# Define relative calving probabilities for first-time mothers
+relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
+
 
 for (scenario in start.scenario:nS) {
   if (verbose > 0)
     cat("Running", scenarios[scenario], "scenario\n")
-    print(Sys.time())
+  print(Sys.time())
   
-  #new cluster processing
-  cl<-makeCluster(n.cores)
-  clusterExport(cl,varlist=ls())
+  if (scenario.dat$mortality[scenario] == "Low Mortality") {
+    alphas[, "Mu.mO"] <- 1 - mean(survival$surv_early)
+  } else {
+    alphas[, "Mu.mO"] <- 1- mean(survival$surv_late)
+  }
+  
+  if (scenario.dat$calving[scenario] == "High Fecundity") {
+    betas[, 1:nReproStages] <- t(sapply(calving$calving_early, function(p) {
+      qlogis(c(relative_calf_prob * p, p))
+    }))
+  } else {
+    betas[, 1:nReproStages] <- t(sapply(calving$calving_late, function(p) {
+      qlogis(c(relative_calf_prob * p, p))
+    }))
+  }
+  
+  
+  wound0 <- wound0[nBootKeep(wound0), , ]
+  
+  print(dim(wound0))
+  print(wound0[1, , ])
+  
+  cl <- makeCluster(n.cores)
   registerDoParallel(cl)
+  clusterExport(cl, varlist=ls()) 
   
-  print(system.time(
-    temp <- foreach(i=1:nBoot) %dopar%
+ 
+  print(system.time({
+    temp <- foreach(i = 1:nBoot) %dopar% {
+      print(kappa[i])
       runPVA.par(
         params= list(
-          N0 = N0[i,], betas = as.matrix(betas)[i,], 
-          eps.i = eps[[eps.type]][["inj"]][,i,], 
-          eps.m = eps[[eps.type]][["mort"]][,i,], 
+          N0 = N0[i,], betas = as.matrix(betas)[i,],
+          eps.i = eps[[eps.type]][["inj"]][,i,],
+          eps.m = eps[[eps.type]][["mort"]][,i,],
           eps.r = eps[[eps.type]][["repro"]][i,],
           alphas = as.matrix(alphas)[i,],
-          woundProb = woundArrays[[scenario.dat$wound[scenario]]][i,,,,],
-          prey = preyArrays[[scenario.dat$prey[scenario]]][i,,],
-          B.ref.yr = c(2019,1999)[(scenario.dat$B.regime[scenario]=="repro historic") + 1],
-          wound0 = wound0[i,,], 
+          woundProb = woundArrays[[1]][i,,,,],
+          prey = preyArrays[[1]][i,,],
+          B.ref.yr = 2019,
+          wound0 = wound0[i,,],
           kappa = kappa[i]
-          ),
-        ceiling_N = scenario.dat$ceiling_N[scenario],
-        nT = nT,
-        nRep = nRep
-        )))
+        ),
+        ceiling_N = scenario.dat$ceiling_N[scenario], # Pass as argument to runPVA.par
+        nT = nT, # Pass as argument to runPVA.par
+        nRep = nRep # Pass as argument to runPVA.par
+      )
+    }
+  }))
   
   stopCluster(cl)
   gc()
   
-  
-  PQE[ , , scenario, ] <- abind(lapply(1:nBoot,function(x) temp[[x]]$PQE),along=0)
-  N[ , , , scenario, ] <- abind(lapply(1:nBoot,function(x) temp[[x]]$N),along=0)
-  Ntot[ , , , scenario] <- abind(lapply(1:nBoot,function(x) temp[[x]]$Ntot),along=0)
-  Ndead[ , , , scenario, , ] <- abind(lapply(1:nBoot,function(x) temp[[x]]$Ndead),along=0)
-  Nborn[ , , , scenario] <- abind(lapply(1:nBoot,function(x) temp[[x]]$Nborn),along=0)
-  propEntangled[ , , , scenario] <- abind(lapply(1:nBoot,function(x) temp[[x]]$propEntangled),along=0)
-  propStruck[ , , , scenario] <- abind(lapply(1:nBoot,function(x) temp[[x]]$propStruck),along=0)
-  propOther[ , , , scenario] <- abind(lapply(1:nBoot,function(x) temp[[x]]$propOther),along=0)
-  #save.image(paste0(out_drive,'pvaResults', version, letters[1], '.RData'))
+  PQE[, , scenario, ] <- abind(lapply(1:nBoot, function(x) temp[[x]]$PQE), along = 0)
+  N[, , , scenario, ] <- abind(lapply(1:nBoot, function(x) temp[[x]]$N), along = 0)
+  Ntot[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$Ntot), along = 0)
+  Ndead[, , , scenario, , ] <- abind(lapply(1:nBoot, function(x) temp[[x]]$Ndead), along = 0)
+  Nborn[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$Nborn), along = 0)
+  propEntangled[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propEntangled), along = 0)
+  propStruck[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propStruck), along = 0)
+  propOther[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propOther), along = 0)
 }
+
+
+#------------------------------------------------------------------------------#
+#graph
+#------------------------------------------------------------------------------#
+library(ggplot2)
+library(dplyr)
+
+# Assuming Ntot is already calculated as in your original code
+
+# Create a data frame for ggplot
+plot_data_ntot <- expand.grid(
+  Year = 1:nT,
+  Scenario = scenarios,
+  Boot = 1:nBoot,
+  Rep = 1:nRep
+)
+
+plot_data_ntot$Ntot <- NA
+
+# Populate the Ntot column
+for (b in 1:nBoot) {
+  for (r in 1:nRep) {
+    for (t in 1:nT) {
+      for (s in 1:length(scenarios)) {
+        plot_data_ntot$Ntot[plot_data_ntot$Year == t &
+                              plot_data_ntot$Scenario == scenarios[s] &
+                              plot_data_ntot$Boot == b &
+                              plot_data_ntot$Rep == r] <- Ntot[b, r, t, s]
+      }
+    }
+  }
+}
+
+# Calculate mean and CI using dplyr
+summary_data_ntot <- plot_data_ntot %>%
+  group_by(Year, Scenario) %>%
+  summarize(
+    Ntot.mean = mean(Ntot, na.rm = TRUE),
+    Ntot.lower = quantile(Ntot, 0.025, na.rm = TRUE),
+    Ntot.upper = quantile(Ntot, 0.975, na.rm = TRUE)
+  )
+
+# Extract starting abundance (at Year 1)
+starting_abundance <- summary_data_ntot$Ntot.mean[summary_data_ntot$Year == 1][1] #Take the first value, as all scenarios start at the same value.
+
+# Create the plot with horizontal line
+plot_original <- ggplot(summary_data_ntot, aes(x = Year, y = Ntot.mean, color = Scenario)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = Ntot.lower, ymax = Ntot.upper, fill = Scenario),
+              alpha = 0.2, color = NA) +
+  labs(title = "Population Trajectories",
+       x = "Year",
+       y = "Total Population Size") +
+  theme_minimal() +
+  theme(plot.margin = margin(5, 5, 5, 5, "mm")) +
+  geom_hline(yintercept = starting_abundance, linetype = "dashed", color = "black")
+
+# Create the zoomed-in plot
+plot_zoomed <- plot_original +
+  coord_cartesian(ylim = c(0, 2500))
+
+# Display the plots
+print(plot_original)
+print(plot_zoomed)

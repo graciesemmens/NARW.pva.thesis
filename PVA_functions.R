@@ -1,6 +1,6 @@
 #object classes and functions for NARW PVA
 
-
+nBoot <- 5000
 #------------------------------------------------------------------------------#
 # Individual whale class----
 #------------------------------------------------------------------------------#
@@ -26,7 +26,7 @@ whale <- function(stage, wound = "fine", z = "alive") {
 
 # Determines whether this whale survives this year, and if it dies, of what
 survive.whale <- function(obj, alpha, eps.m, i.ref.yr = 2019) {
-
+  
   S <- switch (as.character(wound.whale(obj)),
                
                fine = exp(-exp(log(alpha["Mu.mO"]))),
@@ -36,21 +36,21 @@ survive.whale <- function(obj, alpha, eps.m, i.ref.yr = 2019) {
                    alpha[["a.mE.age"]]*(age.whale(obj = obj)-5) +
                    alpha[["a.mE.calf"]]*repro.whale(obj = obj) +
                    alpha[["a.mE.rest"]]*rest.whale(obj = obj) 
-                   # alpha[["a.mE.regime"]]*as.numeric(i.ref.yr > 2010) + 
-                   #alpha[["a.mE.regime2"]]*as.numeric(i.ref.yr > 2013)
-                   # eps.m[["E"]]
-                 )),
+                 # alpha[["a.mE.regime"]]*as.numeric(i.ref.yr > 2010) + 
+                 #alpha[["a.mE.regime2"]]*as.numeric(i.ref.yr > 2013)
+                 # eps.m[["E"]]
+               )),
                
                vessel = exp(-exp(
                  log(alpha[["Mu.mV"]]) +
                    alpha[["a.mV.age"]]*(age.whale(obj = obj)-5) +
                    alpha[["a.mV.calf"]]*repro.whale(obj = obj) +
                    alpha[["a.mV.rest"]]*rest.whale(obj = obj) 
-                   #alpha[["a.mV.regime"]]*as.numeric(i.ref.yr > 2010) +
-                   #alpha[["a.mV.regime2"]]*as.numeric(i.ref.yr > 2013)
-                   # eps.m[["V"]]
-                 ))
-               )
+                 #alpha[["a.mV.regime"]]*as.numeric(i.ref.yr > 2010) +
+                 #alpha[["a.mV.regime2"]]*as.numeric(i.ref.yr > 2013)
+                 # eps.m[["V"]]
+               ))
+  )
   lives <- rbinom(1, 1, S)
   if (lives){
     state <- 1
@@ -75,7 +75,7 @@ updateStage.whale <- function(obj, beta, eps.r, prey, N, kappa, B.ref.yr = 2019)
   B <- plogis(beta[1:nReproStages] + 
                 beta["b.prey1"] * prey[1] + beta["b.prey2"] * prey[2] + 
                 as.numeric(beta["b.regime2"]) * as.numeric(B.ref.yr >= 2013) %*%
-                   matrix(c(1,1,1,1,1,1,0),ncol = nReproStages,nrow = 1) +
+                matrix(c(1,1,1,1,1,1,0),ncol = nReproStages,nrow = 1) +
                 #beta["b.ent"] * (entangled.whale(obj)) + 
                 #beta["b.ves"] * (struck.whale(obj)) +
                 beta["b.inj"] * (entangled.whale(obj)) + 
@@ -277,6 +277,7 @@ printWhales <- function(whales, how = c('short', 'long')) {
 # Other/general functions----
 #------------------------------------------------------------------------------#
 # Creates matrix of wound state transition probabilities
+# Creates matrix of wound state transition probabilities
 woundProbMatrix <- function(iTheta, # injury parameters from COD model
                             eps.i, # temporal random effects (iE, iV)
                             w.calf = 0, # female with calf
@@ -293,16 +294,19 @@ woundProbMatrix <- function(iTheta, # injury parameters from COD model
   mat <- matrix(0, nWoundStates, nWoundStates, 
                 dimnames = list(woundStates, woundStates))
   
-  iV <- exp(log(iTheta[,"Mu.iV"]) + iTheta[,"a.iV.age"]*(age-5) + iTheta[,"a.iV.calf"]*w.calf +
-              iTheta[,"a.iV.rest"]*resting +
-              iTheta[,"a.iV.regime2"]*regime2 + eps.i[["V"]]) * reduce.iV
+  iV <- 0
   
-  iE <- exp(log(iTheta[,"Mu.iE"]) + iTheta[,"a.iE.age"]*(age-5) + iTheta[,"a.iE.calf"]*w.calf +
-              iTheta[,"a.iE.rest"]*resting +
-              iTheta[,"a.iE.regime2"]*regime2 + eps.i[["E"]]) * reduce.iE
+  iE <- 0
+  
+  #pinj <- 1-exp(-(iV + iE))
+  #pinj_E <- iE / (iV + iE)
   
   pinj <- 1-exp(-(iV + iE))
-  pinj_E <- iE / (iV + iE)
+  if (iE >0){
+    pinj_E <- iE / (iV + iE)
+  } else {
+    pinj_E <- 0
+  }
   
   # col = t, row = t+1
   mat[1, 1] <- 1 - pinj
@@ -313,6 +317,8 @@ woundProbMatrix <- function(iTheta, # injury parameters from COD model
   mat[1, 3] <- 1
   mat
 }
+
+
 
 # Creates matrix of stage transition probabilities (given survival)
 stageProbMatrix <- function(Bs, kappa) {
@@ -440,7 +446,7 @@ compPQE <- function(Ntot, thresh = thresholds) {
 
 compPDecline <- function(Ntot, fraction = c(0.7,0.5,0.2)){
   PDecline <- array(0, c(nBoot, nT, nS, length(fraction)), 
-               list(NULL, NULL, scenarios, fraction))
+                    list(NULL, NULL, scenarios, fraction))
   for (sc in 1:nS)
     for (i in 1:nBoot) {
       for (j in 1:nRep) {
@@ -456,7 +462,7 @@ compPDecline <- function(Ntot, fraction = c(0.7,0.5,0.2)){
 
 compPIncrease <- function(Ntot, year=35, factor=2){
   PIncrease <- array(0, c(nBoot, nS), 
-                    list(NULL, scenarios))
+                     list(NULL, scenarios))
   for (sc in 1:nS)
     for (i in 1:nBoot) {
       for (j in 1:nRep) {
@@ -471,7 +477,7 @@ nBootKeep <- function(posterior){
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   } else {
     print("nBoot missing, using 1,000 samples")
-    nBoot <- 1000
+    nBoot <- 5000
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   }
 }
@@ -505,7 +511,7 @@ getCI <- function(x,prob=0.95,rd=4,na_rm=T,stat=c("med","mean")[1]){
 #     3: display bootstrap runs and Monte Carlo replications
 #     4: display bootstrap runs, Monte Carlo replications, years, and population summary
 #     5: display bootstrap runs, Monte Carlo replications, years, population summary, and individual whales
-runPVA <- function(params, nBoot = 1000, nRep = 1, nT = 100, ceiling_N = 5000, 
+runPVA <- function(params, nBoot = 5000, nRep = 1, nT = 100, ceiling_N = 5000, 
                    verbose = 1) {
   # Data structures 
   N <- array(NA, c(nBoot, nRep, nT, nStages), dimnames = list(NULL, NULL, NULL, stages))
@@ -655,7 +661,7 @@ cause <- function(obj, ...) {
 #------------------------------------------------------------------------------#
 
 runPVA.par <- function(params, nRep = 1, nT = 100, ceiling_N = 5000, 
-                   verbose = 1) {
+                       verbose = 1) {
   # Data structures 
   N <- array(NA, c(nRep, nT, nStages), dimnames = list(NULL, NULL, stages))
   Ntot <- array(NA, c( nRep, nT))
@@ -673,83 +679,81 @@ runPVA.par <- function(params, nRep = 1, nT = 100, ceiling_N = 5000,
   # for (i in 1:nBoot) {
   #   if (verbose > 1)
   #     cat("Bootstrap Run:", i, "of", nBoot, 'at', format(Sys.time()), "\n")
-    N0rep <- rep(stages, params$N0)
-    wound0rep <- rep(woundStates, apply(params$wound0, 2, sum))
-    for (j in 1:nRep) {
-      if (verbose > 2)
-        cat("\tMonte Carlo Run:", j, "of", nRep, 'at', format(Sys.time()), "\n")
-      # Need somehow to come up with starting conditions in year 1
-      whales <- mapply(whale, stage = N0rep, wound = wound0rep, SIMPLIFY = FALSE)
-      for (t in 1:nT) {
-        if (verbose > 3) {
-          cat("Year:", t, "of", nT, "\n")
-          cat(length(whales), "whales\n")
-        }
-        if (length(whales) == 0) {
-          N[j, t:nT, ] <- 0
-          Ntot[j, t:nT] <- 0
-          break
-        }
-        whales <- lapply(whales, update, alpha = params$alphas, 
-                         beta = params$betas, 
-                         woundProb = params$woundProb[,,,t],
-                         eps.m = params$eps.m[ , t],
-                         eps.r = params$eps.r[t],
-                         prey = params$prey[t, ],
-                         N = length(whales),
-                         kappa = params$kappa,
-                         B.ref.yr = params$B.ref.yr
-        )
-        if (verbose > 4)
-          printWhales(whales, "long")
-        currentDead <- which(sapply(whales, function(x) !alive(x)))
-        if (length(currentDead)>0){
-          #print("Dead:")
-          #printWhales(whales[currentDead])
-          Ndead[j, t, , ] <- (stageDeathStructure(whales[currentDead]))
-          #print(Ndead[i, j, t, , ])
-          whales <- whales[-currentDead]
-        }
-        nInd <- length(whales)
-        if (nInd == 0){
-          N[j, t:nT, ] <- 0
-          Ntot[j, t:nT] <- 0
-          break
-        }
-        nRecruit <- nRepro(whales)
-        Nborn[j, t] <- nRecruit
-        if (nRecruit > 0) {
-          fem <- rbinom(nRecruit, 1, 0.5)
-          for (ind in 1:nRecruit)
-            # may indicate stages differently
-            whales[[ind + nInd]] <- whale(ifelse(fem[ind], 'F1', 'M1'), 
-                                          sample(woundStates, 1, 
-                                                 prob = params$woundProb[,1,1,t]))
-          nInd <- nInd + nRecruit
-        }
-        # Ceiling DD, put in just in case
-        if (nInd > ceiling_N) {
-          whales <- whales[1:ceiling_N]
-          nInd <- ceiling_N
-        }
-        N[j, t, ] <- as.vector(stageStructure(whales))
-        Ntot[j, t] <- nInd
-        propEntangled[j, t] <- nEntangled(whales) / nInd
-        propStruck[j, t] <- nStruck(whales) / nInd
-        propOther[j, t] <- nOther(whales) / nInd
+  N0rep <- rep(stages, params$N0)
+  wound0rep <- rep(woundStates, apply(params$wound0, 2, sum))
+  for (j in 1:nRep) {
+    if (verbose > 2)
+      cat("\tMonte Carlo Run:", j, "of", nRep, 'at', format(Sys.time()), "\n")
+    # Need somehow to come up with starting conditions in year 1
+    whales <- mapply(whale, stage = N0rep, wound = wound0rep, SIMPLIFY = FALSE)
+    for (t in 1:nT) {
+      if (verbose > 3) {
+        cat("Year:", t, "of", nT, "\n")
+        cat(length(whales), "whales\n")
       }
-      
-      PQE <- array(0, c(nT, nThresholds), dimnames = list(NULL, thresholds))
-      for (th in 1:nThresholds) {
-        t <- which(Ntot[j, ]<thresholds[th])[1]
-        if (!is.na(t))
-          PQE[t:nT, th] <- PQE[t:nT, th] + 1/nRep
+      if (length(whales) == 0) {
+        N[j, t:nT, ] <- 0
+        Ntot[j, t:nT] <- 0
+        break
       }
-    } #j, rep
+      whales <- lapply(whales, update, alpha = params$alphas, 
+                       beta = params$betas, 
+                       woundProb = params$woundProb[,,,t],
+                       eps.m = params$eps.m[ , t],
+                       eps.r = params$eps.r[t],
+                       prey = params$prey[t, ],
+                       N = length(whales),
+                       kappa = params$kappa,
+                       B.ref.yr = params$B.ref.yr
+      )
+      if (verbose > 4)
+        printWhales(whales, "long")
+      currentDead <- which(sapply(whales, function(x) !alive(x)))
+      if (length(currentDead)>0){
+        #print("Dead:")
+        #printWhales(whales[currentDead])
+        Ndead[j, t, , ] <- (stageDeathStructure(whales[currentDead]))
+        #print(Ndead[i, j, t, , ])
+        whales <- whales[-currentDead]
+      }
+      nInd <- length(whales)
+      if (nInd == 0){
+        N[j, t:nT, ] <- 0
+        Ntot[j, t:nT] <- 0
+        break
+      }
+      nRecruit <- nRepro(whales)
+      Nborn[j, t] <- nRecruit
+      if (nRecruit > 0) {
+        fem <- rbinom(nRecruit, 1, 0.5)
+        for (ind in 1:nRecruit)
+          # may indicate stages differently
+          whales[[ind + nInd]] <- whale(ifelse(fem[ind], 'F1', 'M1'), 
+                                        sample(woundStates, 1, 
+                                               prob = params$woundProb[,1,1,t]))
+        nInd <- nInd + nRecruit
+      }
+      # Ceiling DD, put in just in case
+      if (nInd > ceiling_N) {
+        whales <- whales[1:ceiling_N]
+        nInd <- ceiling_N
+      }
+      N[j, t, ] <- as.vector(stageStructure(whales))
+      Ntot[j, t] <- nInd
+      propEntangled[j, t] <- nEntangled(whales) / nInd
+      propStruck[j, t] <- nStruck(whales) / nInd
+      propOther[j, t] <- nOther(whales) / nInd
+    }
+    
+    PQE <- array(0, c(nT, nThresholds), dimnames = list(NULL, thresholds))
+    for (th in 1:nThresholds) {
+      t <- which(Ntot[j, ]<thresholds[th])[1]
+      if (!is.na(t))
+        PQE[t:nT, th] <- PQE[t:nT, th] + 1/nRep
+    }
+  } #j, rep
   #} #i, boot
   return(list(PQE = PQE, N = N, Ntot = Ntot, Ndead = Ndead, Nborn = Nborn,
               propEntangled = propEntangled, propStruck = propStruck,
               propOther = propOther))
 }
-
-
