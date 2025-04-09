@@ -345,14 +345,20 @@ for (scenario in start.scenario:nS) {
   }
   
   if (scenario.dat$calving[scenario] == "High Fecundity") {
-    betas[, 1:nReproStages] <- t(sapply(calving$calving_early, function(p) {
-      qlogis(c(relative_calf_prob * p, p))
-    }))
+    base_calf_prob <- calving$calving_early
   } else {
-    betas[, 1:nReproStages] <- t(sapply(calving$calving_late, function(p) {
-      qlogis(c(relative_calf_prob * p, p))
-    }))
+    base_calf_prob <- calving$calving_late
   }
+  
+  relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
+  
+  # Calving probabilities for the 6 pre-breeding age classes
+  for (i in 1:length(relative_calf_prob)) {
+    betas[, i] <- qlogis(relative_calf_prob[i] * base_calf_prob)
+  }
+  
+  # Calving probability for FW
+  betas[, 7] <- qlogis(base_calf_prob)
   
   
   wound0 <- wound0[nBootKeep(wound0), , ]
