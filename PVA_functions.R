@@ -1,6 +1,6 @@
 #object classes and functions for NARW PVA
 
-nBoot <- 5000
+nBoot <- 20
 #------------------------------------------------------------------------------#
 # Individual whale class----
 #------------------------------------------------------------------------------#
@@ -477,7 +477,7 @@ nBootKeep <- function(posterior){
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   } else {
     print("nBoot missing, using 1,000 samples")
-    nBoot <- 5000
+    nBoot <- 20
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   }
 }

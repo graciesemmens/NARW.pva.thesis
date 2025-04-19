@@ -20,7 +20,7 @@ out_drive <- "C:\\temp\\"
 #------------------------------------------------------------------------------#
 version <- "1.00"
 
-nBoot <- 5000#, number of bootstrap runs
+nBoot <- 10#, number of bootstrap runs
 nRep  <- 1   #, number of replications (Monte Carlo loop). 
 nT <- 100 # number of years
 
@@ -332,35 +332,49 @@ print(str(calving))
 # Define relative calving probabilities for first-time mothers
 relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
 
+nBoot <- 10
 
+#scenarios using posterior data
 for (scenario in start.scenario:nS) {
   if (verbose > 0)
     cat("Running", scenarios[scenario], "scenario\n")
   print(Sys.time())
   
   if (scenario.dat$mortality[scenario] == "Low Mortality") {
-    alphas[, "Mu.mO"] <- 1 - mean(survival$surv_early)
+    alphas[, "Mu.mO"] <- 1 - sample(
+      survival$surv_early,  
+      size    = 1,       
+      replace = FALSE         
+    )
   } else {
-    alphas[, "Mu.mO"] <- 1- mean(survival$surv_late)
+    alphas[, "Mu.mO"] <- 1 - sample(
+      survival$surv_late,  
+      size    = 1,       
+      replace = FALSE    
+    )
   }
   
   if (scenario.dat$calving[scenario] == "High Fecundity") {
-    base_calf_prob <- calving$calving_early
+    base_calf_prob <- sample(
+      calving$calving_early,
+      size    =  1,       
+      replace = FALSE    
+    )
   } else {
-    base_calf_prob <- calving$calving_late
+    base_calf_prob <- sample(
+      calving$calving_late, 
+      size    = 1,       
+      replace = FALSE    
+    )
   }
   
-  relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
-  
-  # Calving probabilities for the 6 pre-breeding age classes
+  # Calving probabilities into reprostages
   for (i in 1:length(relative_calf_prob)) {
-    betas[, i] <- qlogis(relative_calf_prob[i] * base_calf_prob)
+    betas[,1:nReproStages] <- sort(rep( qlogis(c(0, 0, 0, 0,(base_calf_prob * 0.336), (base_calf_prob * 0.256), (base_calf_prob))))) 
   }
   
-  # Calving probability for FW
-  betas[, 7] <- qlogis(base_calf_prob)
-  
-  
+  # Calving probability for FW + old pre-breeders
+ 
   wound0 <- wound0[nBootKeep(wound0), , ]
   
   print(dim(wound0))
@@ -387,9 +401,9 @@ for (scenario in start.scenario:nS) {
           wound0 = wound0[i,,],
           kappa = kappa[i]
         ),
-        ceiling_N = scenario.dat$ceiling_N[scenario], # Pass as argument to runPVA.par
-        nT = nT, # Pass as argument to runPVA.par
-        nRep = nRep # Pass as argument to runPVA.par
+        ceiling_N = scenario.dat$ceiling_N[scenario], 
+        nT = nT, 
+        nRep = nRep
       )
     }
   }))
@@ -407,6 +421,7 @@ for (scenario in start.scenario:nS) {
   propOther[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propOther), along = 0)
 }
 
+# Enrico's data
 
 #------------------------------------------------------------------------------#
 #graph
