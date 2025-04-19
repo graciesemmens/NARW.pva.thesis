@@ -429,7 +429,7 @@ for (scenario in start.scenario:nS) {
 library(ggplot2)
 library(dplyr)
 
-# Assuming Ntot is already calculated as in your original code
+
 
 # Create a data frame for ggplot
 plot_data_ntot <- expand.grid(
@@ -455,7 +455,7 @@ for (b in 1:nBoot) {
   }
 }
 
-# Calculate mean and CI using dplyr
+# Calculate mean and CI
 summary_data_ntot <- plot_data_ntot %>%
   group_by(Year, Scenario) %>%
   summarize(
