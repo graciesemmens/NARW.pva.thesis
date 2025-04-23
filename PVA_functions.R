@@ -1,6 +1,6 @@
 #object classes and functions for NARW PVA
 
-nBoot <- 20
+nBoot <- 10
 #------------------------------------------------------------------------------#
 # Individual whale class----
 #------------------------------------------------------------------------------#
@@ -477,7 +477,7 @@ nBootKeep <- function(posterior){
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   } else {
     print("nBoot missing, using 1,000 samples")
-    nBoot <- 20
+    nBoot <- 10
     return(floor(seq(1,nrow(posterior),length.out=nBoot)))
   }
 }
@@ -511,7 +511,7 @@ getCI <- function(x,prob=0.95,rd=4,na_rm=T,stat=c("med","mean")[1]){
 #     3: display bootstrap runs and Monte Carlo replications
 #     4: display bootstrap runs, Monte Carlo replications, years, and population summary
 #     5: display bootstrap runs, Monte Carlo replications, years, population summary, and individual whales
-runPVA <- function(params, nBoot = 5000, nRep = 1, nT = 100, ceiling_N = 5000, 
+runPVA <- function(params, nBoot = 10, nRep = 1, nT = 100, ceiling_N = 5000, 
                    verbose = 1) {
   # Data structures 
   N <- array(NA, c(nBoot, nRep, nT, nStages), dimnames = list(NULL, NULL, NULL, stages))
@@ -660,8 +660,8 @@ cause <- function(obj, ...) {
 # Parallel run----
 #------------------------------------------------------------------------------#
 
-runPVA.par <- function(params, nRep = 1, nT = 100, ceiling_N = 5000, 
-                       verbose = 1) {
+runPVA.par <- function(params, nRep = 50, nT = 100, ceiling_N = 5000, 
+                       verbose = 1, nBoot = 10) {
   # Data structures 
   N <- array(NA, c(nRep, nT, nStages), dimnames = list(NULL, NULL, stages))
   Ntot <- array(NA, c( nRep, nT))

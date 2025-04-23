@@ -329,62 +329,71 @@ print(calving)
 print(str(calving))
 
 
-# Define relative calving probabilities for first-time mothers
+nBoot <- 10    # ← sample mortality & fecundity 50 times
+nRep  <- 1   # ← run 50 Monte Carlo replicates inside runPVA.par
 relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
+n.cores <- 7
+start.scenario <- 1
 
-nBoot <- 10
+#new cluster processing
+cl<-makeCluster(n.cores)
+clusterExport(cl,varlist=ls())
+registerDoParallel(cl)
+
+
+
+
 
 #scenarios using posterior data
 for (scenario in start.scenario:nS) {
   if (verbose > 0)
     cat("Running", scenarios[scenario], "scenario\n")
   print(Sys.time())
+
   
   if (scenario.dat$mortality[scenario] == "Low Mortality") {
     alphas[, "Mu.mO"] <- 1 - sample(
-      survival$surv_early,  
-      size    = 1,       
-      replace = FALSE         
+      survival$surv_early,
+      size    = nBoot,
+      replace = TRUE      
     )
   } else {
     alphas[, "Mu.mO"] <- 1 - sample(
-      survival$surv_late,  
-      size    = 1,       
-      replace = FALSE    
+      survival$surv_late,
+      size    = nBoot,
+      replace = TRUE
     )
+    alphas[,"Mu.mE"] <- 0
+    alphas[,"Mu.mV"] <- 0
+ 
   }
-  
   if (scenario.dat$calving[scenario] == "High Fecundity") {
-    base_calf_prob <- sample(
+    base_calf <- sample(
       calving$calving_early,
-      size    =  1,       
-      replace = FALSE    
+      size    = nBoot,
+      replace = TRUE
     )
   } else {
-    base_calf_prob <- sample(
-      calving$calving_late, 
-      size    = 1,       
-      replace = FALSE    
+    base_calf <- sample(
+      calving$calving_late,
+      size    = nBoot,
+      replace = TRUE
     )
   }
   
-  # Calving probabilities into reprostages
-  for (i in 1:length(relative_calf_prob)) {
-    betas[,1:nReproStages] <- sort(rep( qlogis(c(0, 0, 0, 0,(base_calf_prob * 0.336), (base_calf_prob * 0.256), (base_calf_prob))))) 
-  }
+  first_mat <- outer(base_calf, relative_calf_prob, `*`)  # nBoot×6 for F5–F10
+  wait_vec  <- base_calf                                  # nBoot for FW
+  first_mat[, 1:4] <- 0
   
-  # Calving probability for FW + old pre-breeders
- 
-  wound0 <- wound0[nBootKeep(wound0), , ]
+  logit_mat <- cbind(
+    qlogis(first_mat),   # now only F9,F10 non‑Inf
+    qlogis(wait_vec)     # FW
+  )
+  colnames(logit_mat) <- reproStages
   
-  print(dim(wound0))
-  print(wound0[1, , ])
+  betas[, reproStages] <- logit_mat
   
-  cl <- makeCluster(n.cores)
-  registerDoParallel(cl)
-  clusterExport(cl, varlist=ls()) 
   
- 
   print(system.time({
     temp <- foreach(i = 1:nBoot) %dopar% {
       print(kappa[i])
@@ -408,8 +417,6 @@ for (scenario in start.scenario:nS) {
     }
   }))
   
-  stopCluster(cl)
-  gc()
   
   PQE[, , scenario, ] <- abind(lapply(1:nBoot, function(x) temp[[x]]$PQE), along = 0)
   N[, , , scenario, ] <- abind(lapply(1:nBoot, function(x) temp[[x]]$N), along = 0)
@@ -420,6 +427,8 @@ for (scenario in start.scenario:nS) {
   propStruck[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propStruck), along = 0)
   propOther[, , , scenario] <- abind(lapply(1:nBoot, function(x) temp[[x]]$propOther), along = 0)
 }
+stopCluster(cl)
+gc()
 
 # Enrico's data
 
@@ -456,12 +465,13 @@ for (b in 1:nBoot) {
 }
 
 # Calculate mean and CI
-summary_data_ntot <- plot_data_ntot %>%
+summary_data_ntot <- plot_data_ntot  %>%
   group_by(Year, Scenario) %>%
   summarize(
-    Ntot.mean = mean(Ntot, na.rm = TRUE),
+    Ntot.mean  = mean(Ntot, na.rm = TRUE),
     Ntot.lower = quantile(Ntot, 0.025, na.rm = TRUE),
-    Ntot.upper = quantile(Ntot, 0.975, na.rm = TRUE)
+    Ntot.upper = quantile(Ntot, 0.975, na.rm = TRUE),
+    .groups = "drop"
   )
 
 # Extract starting abundance (at Year 1)
