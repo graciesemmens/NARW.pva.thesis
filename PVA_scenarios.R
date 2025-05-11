@@ -5,7 +5,7 @@ library(dplyr)
 #------------------------------------------------------------------------------#
 # Functions for building prey/wound scenarios----
 #------------------------------------------------------------------------------#
-nBoot = 10
+nBoot = 30
 # function for building prey scenarios
 build.scenario.prey <- function(
     preyDat, #plankton indices

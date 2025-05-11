@@ -1,6 +1,5 @@
 #object classes and functions for NARW PVA
-
-nBoot <- 10
+nBoot <- 30
 #------------------------------------------------------------------------------#
 # Individual whale class----
 #------------------------------------------------------------------------------#
@@ -71,40 +70,50 @@ updateWound.whale <- function(obj, woundProb) {
 }
 
 # Updates stage for this whale and this year
-updateStage.whale <- function(obj, beta, eps.r, prey, N, kappa, B.ref.yr = 2019) {
-  B <- plogis(beta[1:nReproStages] + 
-                beta["b.prey1"] * prey[1] + beta["b.prey2"] * prey[2] + 
-                as.numeric(beta["b.regime2"]) * as.numeric(B.ref.yr >= 2013) %*%
-                matrix(c(1,1,1,1,1,1,0),ncol = nReproStages,nrow = 1) +
-                #beta["b.ent"] * (entangled.whale(obj)) + 
-                #beta["b.ves"] * (struck.whale(obj)) +
-                beta["b.inj"] * (entangled.whale(obj)) + 
-                beta["b.inj"] * (struck.whale(obj)) +
-                eps.r)
-  names(B) <- c(5:10, "W")
-  mat <- stageProbMatrix(B, kappa)
-  sample(stages, 1, prob = mat[ , stage.whale(obj)])
-}
+ updateStage.whale <- function(obj, beta, N, kappa, B.ref.yr = 2019) {
+    B <- (beta[1:nReproStages] )
+    names(B) <- c(5:10, "W")
+    mat <- stageProbMatrix(B, kappa)
+    sample(stages, 1, prob = mat[ , stage.whale(obj)])
+  }
 
-# Transition whale's state from time t to t+1
-update.whale <- function(obj, alpha, eps.m, beta, eps.r, prey, N, kappa, 
-                         woundProb, B.ref.yr = 2019) {
-  # If whale is already dead, don't change its state
-  if (!alive.whale(obj))
-    return(obj)
-  out <- obj
-  out$wound <- factor(updateWound.whale(obj, woundProb), levels = woundStates)
-  # need the survival to be of the new wound updated "out" 
-  out$alive <- factor(survive.whale(out, alpha, eps.m), 
-                      levels = liveDeadStates)
-  # If whale is now dead, don't change its state further
-  if (!alive.whale(out))
-    return(out)
-  out$stage <- factor(updateStage.whale(obj, beta, eps.r, prey, N, kappa, B.ref.yr),
-                      levels = stages) 
-  return(out)
-}
-
+ #------------------------------------------------------------------------------#
+ # Transition whale's state from time t to t+1 (Option 2 version)----
+ #------------------------------------------------------------------------------#
+ update.whale <- function(obj,
+                          alpha,         # for survive.whale()
+                          eps.m,         # if you’re still using temporal mortality effects
+                          beta,          # raw fecundity probs in beta[1:nReproStages]
+                          N,             # population size
+                          kappa,         # calf‐loss split
+                          woundProb      # if you still use updateWound.whale()
+ ) {
+   # Dead whales stay dead
+   if (!alive.whale(obj)) return(obj)
+   out <- obj
+   out$wound <- factor(
+     updateWound.whale(obj, woundProb),
+     levels = woundStates
+   )
+   
+   #Survival uses only alpha["Mu.mO"] now
+   out$alive <- factor(
+     survive.whale(out, alpha, eps.m),
+     levels = liveDeadStates
+   )
+   if (!alive.whale(out)) return(out)
+   out$stage <- factor(
+     updateStage.whale(
+       obj   = out,
+       beta  = beta,
+       N     = N,
+       kappa = kappa
+     ),
+     levels = stages
+   )
+   return(out)
+ }
+ 
 # Checks if this whale is a juvenile (TRUE/FALSE) 
 juv.whale <- function(obj) {
   (obj$stage %in% c('F1', 'F2', 'F3', 'F4', 
@@ -700,11 +709,8 @@ runPVA.par <- function(params, nRep = 50, nT = 100, ceiling_N = 5000,
                        beta = params$betas, 
                        woundProb = params$woundProb[,,,t],
                        eps.m = params$eps.m[ , t],
-                       eps.r = params$eps.r[t],
-                       prey = params$prey[t, ],
                        N = length(whales),
-                       kappa = params$kappa,
-                       B.ref.yr = params$B.ref.yr
+                       kappa = params$kappa
       )
       if (verbose > 4)
         printWhales(whales, "long")
@@ -757,3 +763,4 @@ runPVA.par <- function(params, nRep = 50, nT = 100, ceiling_N = 5000,
               propEntangled = propEntangled, propStruck = propStruck,
               propOther = propOther))
 }
+

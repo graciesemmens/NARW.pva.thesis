@@ -14,15 +14,29 @@
 #------------------------------------------------------------------------------#
 library(zoo);library(abind)
 out_drive <- "C:\\temp\\"
+library(ggplot2)
+plot_by_scenario <- ggplot(summary_data_ntot, aes(x = Year, y = Ntot.mean)) +
+  geom_ribbon(aes(ymin = Ntot.lower, ymax = Ntot.upper, fill = Scenario),
+              alpha = 0.2, color = NA) +
+  geom_line(aes(color = Scenario)) +
+  geom_hline(yintercept = starting_abundance,
+             linetype = "dashed", color = "black") +
+  facet_wrap(~ Scenario, ncol = 2) +
+  labs(title = "Population Trajectories by Scenario",
+       x = "Year", y = "Total Population Size") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.margin = margin(5, 5, 5, 5, "mm"))
 
+print(plot_by_scenario)
 #------------------------------------------------------------------------------#
 # Basic settings----
 #------------------------------------------------------------------------------#
 version <- "1.00"
 
-nBoot <- 10#, number of bootstrap runs
+nBoot <- 30#, number of bootstrap runs
 nRep  <- 1   #, number of replications (Monte Carlo loop). 
-nT <- 100 # number of years
+nT <- 100# number of years
 
 ## Reproductive stages----
 stages <- c('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 
@@ -95,7 +109,9 @@ source("PVA_scenarios.R")
 post_repro <- read.csv("inputs/NARW_posteriors_REPRO.csv")
 post_mort  <- read.csv("inputs/NARW_posteriors_MORT.csv")
 
-## match Greek letter convention for mortality model
+print(names(post_mort))
+      
+  ## match Greek letter convention for mortality model
 mort.coeff <- grep(paste(c("beta.m","beta.i"),collapse="|"),names(post_mort),value=T)
 names(post_mort)[match(mort.coeff,names(post_mort))] <- gsub("beta","a",mort.coeff)
 
@@ -105,7 +121,7 @@ post_mort  <-  post_mort[nBootKeep(post_mort),]
 
 ## natural mortality (set to 0)----
 # based on Dureuil & Froese (2021) and t_max = 268 (bowhead whales)
-post_mort$Mu.mO <- 0 #rgamma(nrow(post_mort),1,99) # set to specific hazard mortality rate 
+post_mort$Mu.mO <- Mu.mO_value #rgamma(nrow(post_mort),1,99) # set to specific hazard mortality rate 
 
 
 ## starting stage/state distributions----
@@ -119,7 +135,7 @@ dimnames(wound0) <- list(NULL, stages, woundStates)
 load(file="inputs/NARW_food_covariates_1986-2019.Rdata")
 
 ## reproductive parameters----
-post_repro$beta.ageW <- qlogis(post_repro$p.beta.ageW)
+post_repro$beta.ageW <- (post_repro$p.beta.ageW)
 post_repro[, grep("beta.age.first",colnames(post_repro),value=TRUE)] <-
   post_repro[, grep("beta.age.first",colnames(post_repro),value=TRUE)] + post_repro[,"beta.ageW"]
 betas <- post_repro[, c(grep("beta.age.first",colnames(post_repro),value=TRUE),
@@ -293,8 +309,44 @@ nS <- nrow(scenario.dat)
 print(scenario.dat)
 
 
+##working with mort values?
 
-  
+deaths_df <- read.csv("/Users/graciesemmens/Downloads/deathsdata.csv")
+print(head(deaths_df)) 
+
+pop_df <- read.csv("/Users/graciesemmens/Downloads/popsize.csv")
+print(head(pop_df)) 
+
+library(dplyr)
+
+# --- Extract Year from Deaths Data ---
+deaths_df <- deaths_df %>%
+  mutate(Year = as.numeric(gsub("-.*", "", `Year.range`)))
+
+
+joined_data <- left_join(deaths_df, pop_df, by = "Year")
+
+joined_data <- joined_data %>%
+  mutate(Annual_Mortality_Rate = mean.x / mean.y) # mean.x is deaths, mean.y is population
+
+# low mort (1990-1995)
+low_mortality_years <- joined_data %>%
+  filter(Year >= 1990 & Year <= 2010)
+average_mortality_low <- mean(low_mortality_years$Annual_Mortality_Rate, na.rm = TRUE)
+mean_surv_early <- 1 - average_mortality_low
+print(paste("Estimated mean_surv_early (1990-1995):", mean_surv_early))
+
+#high mort (2015-2020)
+high_mortality_years <- joined_data %>%
+  filter(Year >= 2010 & Year <= 2018)
+average_mortality_high <- mean(high_mortality_years$Annual_Mortality_Rate, na.rm = TRUE)
+mean_surv_late <- 1 - average_mortality_high
+print(paste("Estimated mean_surv_late (2015-2020):", mean_surv_late))
+
+
+
+
+
 #------------------------------------------------------------------------------#
 # Output data structures----
 #------------------------------------------------------------------------------#
@@ -329,9 +381,8 @@ print(calving)
 print(str(calving))
 
 
-nBoot <- 10    # ← sample mortality & fecundity 50 times
-nRep  <- 1   # ← run 50 Monte Carlo replicates inside runPVA.par
-relative_calf_prob <- c(0.005, 0.052, 0.151, 0.259, 0.256, 0.336)
+nBoot <- 30    # ← sample mortality & fecundity
+nRep  <- 1   # ← run Monte Carlo replicates inside runPVA.par
 n.cores <- 7
 start.scenario <- 1
 
@@ -340,78 +391,68 @@ cl<-makeCluster(n.cores)
 clusterExport(cl,varlist=ls())
 registerDoParallel(cl)
 
-
-
-
+print(1- mean_surv_early)
+print(1-mean_surv_late)
+testlate <- .0697
+testearly <- .0396
+print(mean_surv_late)
+print(mean_surv_early)
 
 #scenarios using posterior data
 for (scenario in start.scenario:nS) {
   if (verbose > 0)
     cat("Running", scenarios[scenario], "scenario\n")
   print(Sys.time())
-
   
+  # Determine natural mortality (Mu.mO) based on the scenario (SINGLE VALUE NOW)
   if (scenario.dat$mortality[scenario] == "Low Mortality") {
-    alphas[, "Mu.mO"] <- 1 - sample(
-      survival$surv_early,
-      size    = nBoot,
-      replace = TRUE      
-    )
+    Mu.mO_value <- (.02280923)*1.46748
   } else {
-    alphas[, "Mu.mO"] <- 1 - sample(
-      survival$surv_late,
-      size    = nBoot,
-      replace = TRUE
-    )
-    alphas[,"Mu.mE"] <- 0
-    alphas[,"Mu.mV"] <- 0
- 
-  }
-  if (scenario.dat$calving[scenario] == "High Fecundity") {
-    base_calf <- sample(
-      calving$calving_early,
-      size    = nBoot,
-      replace = TRUE
-    )
-  } else {
-    base_calf <- sample(
-      calving$calving_late,
-      size    = nBoot,
-      replace = TRUE
-    )
+    Mu.mO_value <-(.04644991)*1.3712
   }
   
-  first_mat <- outer(base_calf, relative_calf_prob, `*`)  # nBoot×6 for F5–F10
-  wait_vec  <- base_calf                                  # nBoot for FW
-  first_mat[, 1:4] <- 0
+  alphas$Mu.mO <- Mu.mO_value # Set Mu.mO to the calculated single value
+  alphas$Mu.mE <- 0
+  alphas$Mu.mV <- 0 
+  # fecund scenario (SAMPLING FOR EACH BOOTSTRAP)
+  base_calf <- numeric(nBoot) # Initialize base_calf as a numeric vector
+  if (scenario.dat$calving[scenario] == "Low Fecundity") {
+    for (i in 1:nBoot) {
+      base_calf[i] <- sample(calving$calving_late, 1)
+    }
+  } else {
+    for (i in 1:nBoot) {
+      base_calf[i] <- sample(calving$calving_early, 1)
+    }
+  }
   
-  logit_mat <- cbind(
-    qlogis(first_mat),   # now only F9,F10 non‑Inf
-    qlogis(wait_vec)     # FW
-  )
-  colnames(logit_mat) <- reproStages
+  # fill the four non‐zero stages FOR EACH BOOTSTRAP:
+  for (i in 1:nBoot) {
+    betas[i, "5"] <- 0
+    betas[i, "6"] <- 0
+    betas[i, "7"] <- 0
+    betas[i, "8"] <- 0
+    betas[i, "9"] <- base_calf[i] * 0.256
+    betas[i, "10"] <- base_calf[i] * 0.336
+    betas[i, "W"] <- base_calf[i]
+  }
   
-  betas[, reproStages] <- logit_mat
-  
-  
+  ##simulation
   print(system.time({
     temp <- foreach(i = 1:nBoot) %dopar% {
       print(kappa[i])
       runPVA.par(
-        params= list(
-          N0 = N0[i,], betas = as.matrix(betas)[i,],
-          eps.i = eps[[eps.type]][["inj"]][,i,],
-          eps.m = eps[[eps.type]][["mort"]][,i,],
-          eps.r = eps[[eps.type]][["repro"]][i,],
-          alphas = as.matrix(alphas)[i,],
-          woundProb = woundArrays[[1]][i,,,,],
-          prey = preyArrays[[1]][i,,],
-          B.ref.yr = 2019,
-          wound0 = wound0[i,,],
+        params = list(
+          N0 = N0[i, ], betas = as.matrix(betas)[i, ],
+          eps.i = eps[[eps.type]][["inj"]][, i, ],
+          eps.m = eps[[eps.type]][["mort"]][, i, ],
+          alphas = as.matrix(alphas)[i, ],
+          woundProb = woundArrays[[1]][i, , , , ],
+          wound0 = wound0[i, , ],
           kappa = kappa[i]
         ),
-        ceiling_N = scenario.dat$ceiling_N[scenario], 
-        nT = nT, 
+        ceiling_N = scenario.dat$ceiling_N[scenario],
+        nT = nT,
         nRep = nRep
       )
     }
@@ -429,8 +470,6 @@ for (scenario in start.scenario:nS) {
 }
 stopCluster(cl)
 gc()
-
-# Enrico's data
 
 #------------------------------------------------------------------------------#
 #graph
@@ -496,3 +535,209 @@ plot_zoomed <- plot_original +
 # Display the plots
 print(plot_original)
 print(plot_zoomed)
+
+##other plots 
+
+final_Ntot <- Ntot[, , nT, ] # Extract total population size at the final year for all boots and scenarios
+
+# Calculate mean and 95% confidence intervals for final population size for each scenario
+mean_final_Ntot <- apply(final_Ntot, 2, mean, na.rm = TRUE)
+lower_final_Ntot <- apply(final_Ntot, 2, quantile, probs = 0.025, na.rm = TRUE)
+upper_final_Ntot <- apply(final_Ntot, 2, quantile, probs = 0.975, na.rm = TRUE)
+
+# Assuming your threshold for PQE is, for example, the 50th threshold (thresholds[3] if thresholds <- c(1, 10, 50, 100))
+threshold_index <- which(thresholds == 50) # Find the index for the threshold of 50
+
+final_PQE <- PQE[, nT, , threshold_index] # Extract PQE at the final year for the threshold of 50 for all boots and scenarios
+
+# Calculate mean and 95% confidence intervals for PQE for each scenario
+mean_final_PQE <- apply(final_PQE, 2, mean, na.rm = TRUE)
+lower_final_PQE <- apply(final_PQE, 2, quantile, probs = 0.025, na.rm = TRUE)
+upper_final_PQE <- apply(final_PQE, 2, quantile, probs = 0.975, na.rm = TRUE)
+
+scenario_names <- scenarios # Your scenario names
+
+results_df <- data.frame(
+  Scenario = scenario_names,
+  Mean_Final_Ntot = mean_final_Ntot,
+  Lower_Final_Ntot = lower_final_Ntot,
+  Upper_Final_Ntot = upper_final_Ntot,
+  Mean_Final_PQE = mean_final_PQE,
+  Lower_Final_PQE = lower_final_PQE,
+  Upper_Final_PQE = upper_final_PQE
+)
+
+print(results_df)
+# Assuming Ntot has dimensions (nBoot, nRep, nT, nS) and 'scenarios' is a vector
+# with your scenario names (e.g., c("Low Mort; Low Fecund", ...))
+
+# Function to calculate approximate lambda for a given scenario index (s)
+calculate_approx_lambda <- function(n_tot_array, nT, scenario_index) {
+  mean_Ntot_start <- mean(n_tot_array[, , 1, scenario_index])
+  mean_Ntot_end <- mean(n_tot_array[, , nT, scenario_index])
+  approx_lambda <- (mean_Ntot_end / mean_Ntot_start)^(1 / (nT - 1))
+  return(approx_lambda)
+}
+
+# Calculate lambda for each of your scenarios
+lambda_scenario <- numeric(length(scenarios))
+for (i in 1:length(scenarios)) {
+  lambda_scenario[i] <- calculate_approx_lambda(Ntot, nT, i)
+  cat(paste("Lambda (", scenarios[i], "):", round(lambda_scenario[i], 3), "\n"))
+}
+
+# Analyze the impact of mortality and fecundity (assuming your scenarios are ordered)
+# 1: Low Mort, Low Fecund
+# 2: High Mort, Low Fecund
+# 3: Low Mort, High Fecund
+# 4: High Mort, High Fecund
+
+if (length(scenarios) == 4) {
+  # Impact of Mortality
+  percent_change_lambda_mortality_low_fecund <- ((lambda_scenario[2] - lambda_scenario[1]) / lambda_scenario[1]) * 100
+  cat(paste("\nChange in lambda due to High Mortality (vs. Low) at Low Fecundity:", round(percent_change_lambda_mortality_low_fecund, 1), "%\n"))
+  
+  percent_change_lambda_mortality_high_fecund <- ((lambda_scenario[4] - lambda_scenario[3]) / lambda_scenario[3]) * 100
+  cat(paste("Change in lambda due to High Mortality (vs. Low) at High Fecundity:", round(percent_change_lambda_mortality_high_fecund, 1), "%\n"))
+  
+  # Impact of Fecundity
+  percent_change_lambda_fecundity_low_mort <- ((lambda_scenario[3] - lambda_scenario[1]) / lambda_scenario[1]) * 100
+  cat(paste("Change in lambda due to High Fecundity (vs. Low) at Low Mortality:", round(percent_change_lambda_fecundity_low_mort, 1), "%\n"))
+  
+  percent_change_lambda_fecundity_high_mort <- ((lambda_scenario[4] - lambda_scenario[2]) / lambda_scenario[2]) * 100
+  cat(paste("Change in lambda due to High Fecundity (vs. Low) at High Mortality:", round(percent_change_lambda_fecundity_high_mort, 1), "%\n"))
+  
+  # Overall Sensitivity Statement
+  avg_mortality_effect <- mean(abs(c(percent_change_lambda_mortality_low_fecund, percent_change_lambda_mortality_high_fecund)))
+  avg_fecundity_effect <- mean(abs(c(percent_change_lambda_fecundity_low_mort, percent_change_lambda_fecundity_high_mort)))
+  
+  if (avg_mortality_effect > avg_fecundity_effect) {
+    relative_sensitivity <- avg_mortality_effect / avg_fecundity_effect
+    cat(paste("\nOverall, the approximate population growth rate (lambda) appears to be more sensitive to mortality than fecundity by a factor of approximately", round(relative_sensitivity, 1), ".\n"))
+  } else if (avg_fecundity_effect > avg_mortality_effect) {
+    relative_sensitivity <- avg_fecundity_effect / avg_mortality_effect
+    cat(paste("\nOverall, the approximate population growth rate (lambda) appears to be more sensitive to fecundity than mortality by a factor of approximately", round(relative_sensitivity, 1), ".\n"))
+  } else {
+    cat("\nOverall, the approximate population growth rate (lambda) appears to be similarly sensitive to mortality and fecundity.\n")
+  }
+} else {
+  cat("\nNote: The sensitivity analysis comparing mortality and fecundity is set up assuming you have four scenarios in the order: Low Mort/Low Fecund, High Mort/Low Fecund, Low Mort/High Fecund, High Mort/High Fecund. Please adjust the indexing if your scenarios are ordered differently.\n")
+}
+
+library(ggplot2)
+library(ggplot2)
+
+ggplot(results_df, aes(x = Scenario, y = Mean_Final_Ntot, fill = Scenario)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(aes(ymin = Lower_Final_Ntot, ymax = Upper_Final_Ntot), width = 0.2) +
+  labs(title = "Mean Projected Population Size at Year 100",
+       x = "Scenario (Mortality; Fecundity)",
+       y = "Mean Total Population Size") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") # Removed legend as Scenario is on x-axis
+
+
+#lambda differences 
+library(ggplot2)
+
+# Data for the elasticity-like comparison
+elasticity_data <- data.frame(
+  Factor = factor(c("Reduced Mortality", "Increased Fecundity"),
+                  levels = c("Reduced Mortality", "Increased Fecundity")),
+  Percent_Change = c(
+    abs(((lambda_scenario[2] - lambda_scenario[1]) / lambda_scenario[1]) * 100), # Magnitude of mortality effect
+    ((lambda_scenario[3] - lambda_scenario[1]) / lambda_scenario[1]) * 100  # Effect of increased fecundity (at low mortality)
+  ),
+  Change_Type = factor(c("Mortality", "Fecundity"), levels = c("Mortality", "Fecundity"))
+)
+
+# Create the bar chart
+ggplot(elasticity_data, aes(x = Factor, y = Percent_Change, fill = Change_Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.5) +
+  labs(
+    title = "Comparison of Approximate Lambda (λ) Sensitivity",
+    x = "Factor Changed",
+    y = "Percentage Change in Lambda (%)",
+    fill = "Parameter"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Mortality" = "skyblue", "Fecundity" = "darkblue"))
+
+
+## some testing to make it look like the real popylation growth 
+# Function to calculate annual average growth/decline rate
+calculate_annual_rate <- function(df, start_year, end_year) {
+  start_pop <- df %>%
+    filter(Year == start_year) %>%
+    pull(mean)
+  end_pop <- df %>%
+    filter(Year == end_year) %>%
+    pull(mean)
+  n_years <- end_year - start_year
+  if (length(start_pop) > 0 && length(end_pop) > 0 && n_years > 0) {
+    proportional_change <- end_pop / start_pop
+    annual_rate <- (proportional_change^(1 / n_years)) - 1
+    return(annual_rate)
+  } else {
+    return(NA)
+  }
+}
+
+# Calculate historical annual average growth/decline rates
+growth_1990_2010 <- calculate_annual_rate(pop_df, 1990, 2010)
+decline_2010_2018 <- calculate_annual_rate(pop_df, 2010, 2018)
+
+print(paste("Historical Annual Average Growth Rate (1990-2010):", round(growth_1990_2010 * 100, 2), "%"))
+print(paste("Historical Annual Average Decline Rate (2010-2018):", round(decline_2010_2018 * 100, 2), "%"))
+
+# --- Comparison to PVA Scenarios ---
+
+cat("\n--- Comparison to PVA Scenarios (Approximate Lambda - 1) ---\n")
+
+# Scenario 3 (Low Mort, High Fecund) for 1990-2010
+pva_growth_1990_2010 <- lambda_scenario[3] - 1
+cat(paste("PVA Approximate Annual Growth Rate (Scenario 3):", round(pva_growth_1990_2010 * 100, 2), "%\n"))
+
+# Scenario 2 (High Mort, Low Fecund) for 2010-2018
+pva_decline_2010_2018 <- lambda_scenario[2] - 1
+cat(paste("PVA Approximate Annual Decline Rate (Scenario 2):", round(pva_decline_2010_2018 * 100, 2), "%\n"))
+
+# --- Assessing if PVA hits the targets ---
+
+cat("\n--- Assessing if PVA hits the targets ---\n")
+
+# Comparing 1990-2010 with Scenario 3
+cat("Comparing 1990-2010 (Historical vs. Scenario 3):\n")
+if (!is.na(growth_1990_2010)) {
+  cat(paste("  Historical:", round(growth_1990_2010 * 100, 2), "% annual growth\n"))
+  cat(paste("  PVA (Scenario 3):", round(pva_growth_1990_2010 * 100, 2), "% annual growth\n"))
+  difference_growth <- pva_growth_1990_2010 - growth_1990_2010
+  if (abs(difference_growth) < 0.01) { # Arbitrary threshold for "hitting"
+    cat("  PVA growth is roughly hitting the historical target.\n")
+  } else if (difference_growth > 0) {
+    cat(paste("  PVA growth is", round(difference_growth * 100, 2), "% higher than historical.\n"))
+  } else {
+    cat(paste("  PVA growth is", round(abs(difference_growth) * 100, 2), "% lower than historical.\n"))
+  }
+} else {
+  cat("  Historical growth rate for 1990-2010 could not be calculated (missing data).\n")
+}
+
+# Comparing 2010-2018 with Scenario 2
+cat("\nComparing 2010-2018 (Historical vs. Scenario 2):\n")
+if (!is.na(decline_2010_2018)) {
+  cat(paste("  Historical:", round(decline_2010_2018 * 100, 2), "% annual decline\n"))
+  cat(paste("  PVA (Scenario 2):", round(pva_decline_2010_2018 * 100, 2), "% annual decline\n"))
+  difference_decline <- pva_decline_2010_2018 - decline_2010_2018
+  if (abs(difference_decline) < 0.01) { # Arbitrary threshold
+    cat("  PVA decline is roughly hitting the historical target.\n")
+  } else if (difference_decline > 0) {
+    cat(paste("  PVA decline is", round(difference_decline * 100, 2), "% less severe than historical.\n"))
+  } else {
+    cat(paste("  PVA decline is", round(abs(difference_decline) * 100, 2), "% more severe than historical.\n"))
+  }
+} else {
+  cat("  Historical decline rate for 2010-2018 could not be calculated (missing data).\n")
+}
