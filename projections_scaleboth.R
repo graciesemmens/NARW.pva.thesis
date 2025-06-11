@@ -110,8 +110,8 @@ post_repro <- read.csv("inputs/NARW_posteriors_REPRO.csv")
 post_mort  <- read.csv("inputs/NARW_posteriors_MORT.csv")
 
 print(names(post_mort))
-      
-  ## match Greek letter convention for mortality model
+
+## match Greek letter convention for mortality model
 mort.coeff <- grep(paste(c("beta.m","beta.i"),collapse="|"),names(post_mort),value=T)
 names(post_mort)[match(mort.coeff,names(post_mort))] <- gsub("beta","a",mort.coeff)
 
@@ -309,41 +309,26 @@ nS <- nrow(scenario.dat)
 print(scenario.dat)
 
 
-##working with mort values?
 
-deaths_df <- read.csv("/Users/graciesemmens/Downloads/deathsdata.csv")
-print(head(deaths_df)) 
-
-pop_df <- read.csv("/Users/graciesemmens/Downloads/popsize.csv")
-print(head(pop_df)) 
-
+#load dans data and assemble 
+# Read in your mortality‐posterior matrix
+mort_df <- read.csv("/Users/graciesemmens/Downloads/NARW_mortality_rates_1990_2022.csv")
+library(dplyr)
+library(tidyr)
 library(dplyr)
 
-# --- Extract Year from Deaths Data ---
-deaths_df <- deaths_df %>%
-  mutate(Year = as.numeric(gsub("-.*", "", `Year.range`)))
+# building the year‐column names
+cols_90_00 <- paste0("X", 1990:2000)
+cols_15_19 <- paste0("X", 2015:2019)
 
-
-joined_data <- left_join(deaths_df, pop_df, by = "Year")
-
-joined_data <- joined_data %>%
-  mutate(Annual_Mortality_Rate = mean.x / mean.y) # mean.x is deaths, mean.y is population
-
-# low mort (1990-1995)
-low_mortality_years <- joined_data %>%
-  filter(Year >= 1990 & Year <= 2010)
-average_mortality_low <- mean(low_mortality_years$Annual_Mortality_Rate, na.rm = TRUE)
-mean_surv_early <- 1 - average_mortality_low
-print(paste("Estimated mean_surv_early (1990-1995):", mean_surv_early))
-
-#high mort (2015-2020)
-high_mortality_years <- joined_data %>%
-  filter(Year >= 2010 & Year <= 2018)
-average_mortality_high <- mean(high_mortality_years$Annual_Mortality_Rate, na.rm = TRUE)
-mean_surv_late <- 1 - average_mortality_high
-print(paste("Estimated mean_surv_late (2015-2020):", mean_surv_late))
-
-
+#computing period means 
+mort_periods <- mort_df %>%
+  mutate(bootstrap = row_number()) %>%
+  mutate(
+    mort_early = rowMeans(across(all_of(cols_90_00)), na.rm = TRUE),
+    mort_late = rowMeans(across(all_of(cols_15_19)), na.rm = TRUE)
+  ) %>%
+  select(mort_early, mort_late)
 
 
 
@@ -374,23 +359,12 @@ library(parallel)
 library(foreach)
 library(doParallel)
 
-#lambda set up 
-lambda_old    <- 1 + 0.0256   # 2.56% growth
-lambda_recent <- 1 - 0.0252   # −2.52% decline
 
 #Enrico's data
-load("/Users/graciesemmens/Downloads/New_fecundity_means_GSemmens.RData") # Adjust path
+load("/Users/graciesemmens/Downloads/Vital_rates_means_GSemmens.RData") # Adjust path
 print(calving)
 print(str(calving))
 
-#dans data 
-
-
-
-nBoot <- 30    # ← sample mortality & fecundity
-nRep  <- 1   # ← run Monte Carlo replicates inside runPVA.par
-n.cores <- 7
-start.scenario <- 1
 
 #new cluster processing
 cl<-makeCluster(n.cores)
@@ -404,7 +378,6 @@ testearly <- .0396
 print(mean_surv_late)
 print(mean_surv_early)
 
-
 #scenarios using posterior data
 for (scenario in start.scenario:nS) {
   if (verbose > 0)
@@ -413,9 +386,9 @@ for (scenario in start.scenario:nS) {
   
   # Determine natural mortality (Mu.mO) based on the scenario (SINGLE VALUE NOW)
   if (scenario.dat$mortality[scenario] == "Low Mortality") {
-    Mu.mO_value <- (.02280923)*1.46748
+    Mu.mO_value <- (sample(mort_periods$mort_early, 1))* 0.88
   } else {
-    Mu.mO_value <-(.04644991)*1.3712
+    Mu.mO_value <-(sample(mort_periods$mort_late, 1))* 1.05 
   }
   
   alphas$Mu.mO <- Mu.mO_value # Set Mu.mO to the calculated single value
@@ -425,11 +398,11 @@ for (scenario in start.scenario:nS) {
   base_calf <- numeric(nBoot) # Initialize base_calf as a numeric vector
   if (scenario.dat$calving[scenario] == "Low Fecundity") {
     for (i in 1:nBoot) {
-      base_calf[i] <- sample(calving$calving_late, 1)
+      base_calf[i] <- sample(calving$calving_late, 1)*  1.12
     }
   } else {
     for (i in 1:nBoot) {
-      base_calf[i] <- sample(calving$calving_early, 1)
+      base_calf[i] <- (sample(calving$calving_early, 1))* 1.04
     }
   }
   
@@ -478,7 +451,105 @@ for (scenario in start.scenario:nS) {
 stopCluster(cl)
 gc()
 
+#------------------------------------------------------------------------------#
+#graph
+#------------------------------------------------------------------------------#
+library(ggplot2)
+library(dplyr)
 
+
+
+# Create a data frame for ggplot
+plot_data_ntot <- expand.grid(
+  Year = 1:nT,
+  Scenario = scenarios,
+  Boot = 1:nBoot,
+  Rep = 1:nRep
+)
+
+plot_data_ntot$Ntot <- NA
+
+# Populate the Ntot column
+for (b in 1:nBoot) {
+  for (r in 1:nRep) {
+    for (t in 1:nT) {
+      for (s in 1:length(scenarios)) {
+        plot_data_ntot$Ntot[plot_data_ntot$Year == t &
+                              plot_data_ntot$Scenario == scenarios[s] &
+                              plot_data_ntot$Boot == b &
+                              plot_data_ntot$Rep == r] <- Ntot[b, r, t, s]
+      }
+    }
+  }
+}
+
+# Calculate mean and CI
+summary_data_ntot <- plot_data_ntot  %>%
+  group_by(Year, Scenario) %>%
+  summarize(
+    Ntot.mean  = mean(Ntot, na.rm = TRUE),
+    Ntot.lower = quantile(Ntot, 0.025, na.rm = TRUE),
+    Ntot.upper = quantile(Ntot, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Extract starting abundance (at Year 1)
+starting_abundance <- summary_data_ntot$Ntot.mean[summary_data_ntot$Year == 1][1] #Take the first value, as all scenarios start at the same value.
+
+# Create the plot with horizontal line
+plot_original <- ggplot(summary_data_ntot, aes(x = Year, y = Ntot.mean, color = Scenario)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = Ntot.lower, ymax = Ntot.upper, fill = Scenario),
+              alpha = 0.2, color = NA) +
+  labs(title = "Population Trajectories",
+       x = "Year",
+       y = "Total Population Size") +
+  theme_minimal() +
+  theme(plot.margin = margin(5, 5, 5, 5, "mm")) +
+  geom_hline(yintercept = starting_abundance, linetype = "dashed", color = "black")
+
+# Create the zoomed-in plot
+plot_zoomed <- plot_original +
+  coord_cartesian(ylim = c(0, 2500))
+
+# Display the plots
+print(plot_original)
+print(plot_zoomed)
+
+##other plots 
+
+final_Ntot <- Ntot[, , nT, ] # Extract total population size at the final year for all boots and scenarios
+
+# Calculate mean and 95% confidence intervals for final population size for each scenario
+mean_final_Ntot <- apply(final_Ntot, 2, mean, na.rm = TRUE)
+lower_final_Ntot <- apply(final_Ntot, 2, quantile, probs = 0.025, na.rm = TRUE)
+upper_final_Ntot <- apply(final_Ntot, 2, quantile, probs = 0.975, na.rm = TRUE)
+
+# Assuming your threshold for PQE is, for example, the 50th threshold (thresholds[3] if thresholds <- c(1, 10, 50, 100))
+threshold_index <- which(thresholds == 50) # Find the index for the threshold of 50
+
+final_PQE <- PQE[, nT, , threshold_index] # Extract PQE at the final year for the threshold of 50 for all boots and scenarios
+
+# Calculate mean and 95% confidence intervals for PQE for each scenario
+mean_final_PQE <- apply(final_PQE, 2, mean, na.rm = TRUE)
+lower_final_PQE <- apply(final_PQE, 2, quantile, probs = 0.025, na.rm = TRUE)
+upper_final_PQE <- apply(final_PQE, 2, quantile, probs = 0.975, na.rm = TRUE)
+
+scenario_names <- scenarios # Your scenario names
+
+results_df <- data.frame(
+  Scenario = scenario_names,
+  Mean_Final_Ntot = mean_final_Ntot,
+  Lower_Final_Ntot = lower_final_Ntot,
+  Upper_Final_Ntot = upper_final_Ntot,
+  Mean_Final_PQE = mean_final_PQE,
+  Lower_Final_PQE = lower_final_PQE,
+  Upper_Final_PQE = upper_final_PQE
+)
+
+print(results_df)
+# Assuming Ntot has dimensions (nBoot, nRep, nT, nS) and 'scenarios' is a vector
+# with your scenario names (e.g., c("Low Mort; Low Fecund", ...))
 
 ##lambda visualizations: 
 # Function to calculate approximate lambda for a given scenario index (s)
@@ -549,6 +620,8 @@ ggplot(results_df, aes(x = Scenario, y = Mean_Final_Ntot, fill = Scenario)) +
 
 
 
+
+
 ## some testing to make it look like the real popylation growth 
 # Function to calculate annual average growth/decline rate
 calculate_annual_rate <- function(df, start_year, end_year) {
@@ -576,51 +649,90 @@ print(paste("Historical Annual Average Growth Rate (1990-2010):", round(growth_1
 print(paste("Historical Annual Average Decline Rate (2010-2018):", round(decline_2010_2018 * 100, 2), "%"))
 
 # --- Comparison to PVA Scenarios ---
+# Scenario 1 (Low Mortality, Low Fecundity) for 1990-2010
+pva_growth_1990_2010_s1 <- lambda_scenario[1] - 1
+cat(paste("PVA Approximate Annual Growth Rate (Scenario 1):",
+          round(pva_growth_1990_2010_s1 * 100, 2), "%\n"))
 
-cat("\n--- Comparison to PVA Scenarios (Approximate Lambda - 1) ---\n")
+# Scenario 2 (High Mortality, Low Fecundity) for 2010-2018
+pva_decline_2010_2018_s2 <- lambda_scenario[2] - 1
+cat(paste("PVA Approximate Annual Decline Rate (Scenario 2):",
+          round(pva_decline_2010_2018_s2 * 100, 2), "%\n"))
 
-# Scenario 3 (Low Mort, High Fecund) for 1990-2010
-pva_growth_1990_2010 <- lambda_scenario[3] - 1
-cat(paste("PVA Approximate Annual Growth Rate (Scenario 3):", round(pva_growth_1990_2010 * 100, 2), "%\n"))
+# Scenario 3 (Low Mortality, High Fecundity) for 1990-2010
+pva_growth_1990_2010_s3 <- lambda_scenario[3] - 1
+cat(paste("PVA Approximate Annual Growth Rate (Scenario 3):",
+          round(pva_growth_1990_2010_s3 * 100, 2), "%\n"))
 
-# Scenario 2 (High Mort, Low Fecund) for 2010-2018
-pva_decline_2010_2018 <- lambda_scenario[2] - 1
-cat(paste("PVA Approximate Annual Decline Rate (Scenario 2):", round(pva_decline_2010_2018 * 100, 2), "%\n"))
+# Scenario 4 (High Mortality, High Fecundity) for 2010-2018
+pva_decline_2010_2018_s4 <- lambda_scenario[4] - 1
+cat(paste("PVA Approximate Annual Decline Rate (Scenario 4):",
+          round(pva_decline_2010_2018_s4 * 100, 2), "%\n"))
 
-# --- Assessing if PVA hits the targets ---
-
-cat("\n--- Assessing if PVA hits the targets ---\n")
-
-# Comparing 1990-2010 with Scenario 3
-cat("Comparing 1990-2010 (Historical vs. Scenario 3):\n")
+# --- 1. Compare Historical vs. Scenario 1 (1990-2010) ---
+cat("\n1) Comparing 1990-2010 (Historical vs. Scenario 1):\n")
 if (!is.na(growth_1990_2010)) {
-  cat(paste("  Historical:", round(growth_1990_2010 * 100, 2), "% annual growth\n"))
-  cat(paste("  PVA (Scenario 3):", round(pva_growth_1990_2010 * 100, 2), "% annual growth\n"))
-  difference_growth <- pva_growth_1990_2010 - growth_1990_2010
-  if (abs(difference_growth) < 0.01) { # Arbitrary threshold for "hitting"
-    cat("  PVA growth is roughly hitting the historical target.\n")
-  } else if (difference_growth > 0) {
-    cat(paste("  PVA growth is", round(difference_growth * 100, 2), "% higher than historical.\n"))
+  cat(paste("   Historical:", round(growth_1990_2010 * 100, 2), "% annual growth\n"))
+  cat(paste("   PVA (Scenario 1):", round(pva_growth_1990_2010_s1 * 100, 2), "% annual growth\n"))
+  difference_growth1 <- pva_growth_1990_2010_s1 - growth_1990_2010
+  if (abs(difference_growth1) < 0.01) {
+    cat("   PVA growth is roughly hitting the historical target.\n")
+  } else if (difference_growth1 > 0) {
+    cat(paste("   PVA growth is", round(difference_growth1 * 100, 2), "% higher than historical.\n"))
   } else {
-    cat(paste("  PVA growth is", round(abs(difference_growth) * 100, 2), "% lower than historical.\n"))
+    cat(paste("   PVA growth is", round(abs(difference_growth1) * 100, 2), "% lower than historical.\n"))
   }
 } else {
-  cat("  Historical growth rate for 1990-2010 could not be calculated (missing data).\n")
+  cat("   Historical growth rate for 1990-2010 could not be calculated (missing data).\n")
 }
 
-# Comparing 2010-2018 with Scenario 2
-cat("\nComparing 2010-2018 (Historical vs. Scenario 2):\n")
+# --- 2. Compare Historical vs. Scenario 2 (2010-2018) ---
+cat("\n2) Comparing 2010-2018 (Historical vs. Scenario 2):\n")
 if (!is.na(decline_2010_2018)) {
-  cat(paste("  Historical:", round(decline_2010_2018 * 100, 2), "% annual decline\n"))
-  cat(paste("  PVA (Scenario 2):", round(pva_decline_2010_2018 * 100, 2), "% annual decline\n"))
-  difference_decline <- pva_decline_2010_2018 - decline_2010_2018
-  if (abs(difference_decline) < 0.01) { # Arbitrary threshold
-    cat("  PVA decline is roughly hitting the historical target.\n")
-  } else if (difference_decline > 0) {
-    cat(paste("  PVA decline is", round(difference_decline * 100, 2), "% less severe than historical.\n"))
+  cat(paste("   Historical:", round(decline_2010_2018 * 100, 2), "% annual decline\n"))
+  cat(paste("   PVA (Scenario 2):", round(pva_decline_2010_2018_s2 * 100, 2), "% annual decline\n"))
+  difference_decline2 <- pva_decline_2010_2018_s2 - decline_2010_2018
+  if (abs(difference_decline2) < 0.01) {
+    cat("   PVA decline is roughly hitting the historical target.\n")
+  } else if (difference_decline2 > 0) {
+    cat(paste("   PVA decline is", round(difference_decline2 * 100, 2), "% less severe than historical.\n"))
   } else {
-    cat(paste("  PVA decline is", round(abs(difference_decline) * 100, 2), "% more severe than historical.\n"))
+    cat(paste("   PVA decline is", round(abs(difference_decline2) * 100, 2), "% more severe than historical.\n"))
   }
 } else {
-  cat("  Historical decline rate for 2010-2018 could not be calculated (missing data).\n")
+  cat("   Historical decline rate for 2010-2018 could not be calculated (missing data).\n")
+}
+
+# --- 3. Compare Historical vs. Scenario 3 (1990-2010) ---
+cat("\n3) Comparing 1990-2010 (Historical vs. Scenario 3):\n")
+if (!is.na(growth_1990_2010)) {
+  cat(paste("   Historical:", round(growth_1990_2010 * 100, 2), "% annual growth\n"))
+  cat(paste("   PVA (Scenario 3):", round(pva_growth_1990_2010_s3 * 100, 2), "% annual growth\n"))
+  difference_growth3 <- pva_growth_1990_2010_s3 - growth_1990_2010
+  if (abs(difference_growth3) < 0.01) {
+    cat("   PVA growth is roughly hitting the historical target.\n")
+  } else if (difference_growth3 > 0) {
+    cat(paste("   PVA growth is", round(difference_growth3 * 100, 2), "% higher than historical.\n"))
+  } else {
+    cat(paste("   PVA growth is", round(abs(difference_growth3) * 100, 2), "% lower than historical.\n"))
+  }
+} else {
+  cat("   Historical growth rate for 1990-2010 could not be calculated (missing data).\n")
+}
+
+# --- 4. Compare Historical vs. Scenario 4 (2010-2018) ---
+cat("\n4) Comparing 2010-2018 (Historical vs. Scenario 4):\n")
+if (!is.na(decline_2010_2018)) {
+  cat(paste("   Historical:", round(decline_2010_2018 * 100, 2), "% annual decline\n"))
+  cat(paste("   PVA (Scenario 4):", round(pva_decline_2010_2018_s4 * 100, 2), "% annual decline\n"))
+  difference_decline4 <- pva_decline_2010_2018_s4 - decline_2010_2018
+  if (abs(difference_decline4) < 0.01) {
+    cat("   PVA decline is roughly hitting the historical target.\n")
+  } else if (difference_decline4 > 0) {
+    cat(paste("   PVA decline is", round(difference_decline4 * 100, 2), "% less severe than historical.\n"))
+  } else {
+    cat(paste("   PVA decline is", round(abs(difference_decline4) * 100, 2), "% more severe than historical.\n"))
+  }
+} else {
+  cat("   Historical decline rate for 2010-2018 could not be calculated (missing data).\n")
 }
